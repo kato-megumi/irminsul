@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::monitor::Monitor;
-use crate::player_data::ExportSettings;
+use crate::player_data::{AchievementExportFormat, AchievementExportSettings, ExportSettings};
 use crate::update::check_for_app_update;
 use crate::{
     AppState, ConfirmationType, Message, ReloadHandle, State, TracingLevel, admin, capture,
@@ -27,6 +27,8 @@ use crate::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SavedAppState {
     export_settings: ExportSettings,
+    #[serde(default)]
+    achievement_export_settings: AchievementExportSettings,
     #[serde(default)]
     auto_start_capture: bool,
     log_raw_packets: bool,
@@ -53,6 +55,7 @@ impl Default for SavedAppState {
                 min_weapon_ascension: 0,
                 min_weapon_rarity: 3,
             },
+            achievement_export_settings: Default::default(),
             auto_start_capture: false,
             log_raw_packets: false,
             tracing_level: Default::default(),
@@ -62,6 +65,13 @@ impl Default for SavedAppState {
 
 #[derive(Clone, Debug)]
 enum OptimizerExportTarget {
+    None,
+    Clipboard,
+    File,
+}
+
+#[derive(Clone, Debug)]
+enum AchievementExportTarget {
     None,
     Clipboard,
     File,
@@ -86,6 +96,12 @@ pub struct IrminsulApp {
     optimizer_save_dialog: Option<FileDialog>,
     optimizer_save_path: Option<PathBuf>,
     optimizer_export_target: OptimizerExportTarget,
+
+    achievement_settings_open: bool,
+    achievement_export_rx: Option<oneshot::Receiver<Result<String>>>,
+    achievement_save_dialog: Option<FileDialog>,
+    achievement_save_path: Option<PathBuf>,
+    achievement_export_target: AchievementExportTarget,
 
     restarting: bool,
 
@@ -218,6 +234,11 @@ impl IrminsulApp {
             optimizer_save_dialog: None,
             optimizer_save_path: None,
             optimizer_export_target: OptimizerExportTarget::None,
+            achievement_settings_open: false,
+            achievement_export_rx: None,
+            achievement_save_dialog: None,
+            achievement_save_path: None,
+            achievement_export_target: AchievementExportTarget::None,
             restarting: false,
             state_rx,
             wish_url_rx,
@@ -241,6 +262,9 @@ impl eframe::App for IrminsulApp {
         self.toasts.show(ctx);
         if let Some(optimizer_save_dialog) = &mut self.optimizer_save_dialog {
             optimizer_save_dialog.update(ctx);
+        }
+        if let Some(achievement_save_dialog) = &mut self.achievement_save_dialog {
+            achievement_save_dialog.update(ctx);
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -519,6 +543,15 @@ impl IrminsulApp {
             });
             if modal.should_close() {
                 self.optimizer_settings_open = false;
+            }
+        }
+
+        if self.achievement_settings_open {
+            let modal = Modal::new(Id::new("Achievement Settings")).show(ui.ctx(), |ui| {
+                self.achievement_settings_modal(ui);
+            });
+            if modal.should_close() {
+                self.achievement_settings_open = false;
             }
         }
         self.capture_ui(ui, app_state);
@@ -941,9 +974,162 @@ impl IrminsulApp {
         Ok(())
     }
 
-    fn achievement_ui(&self, ui: &mut egui::Ui, _app_state: &AppState) {
-        Self::section_header(ui, "Achievement Export");
-        ui.label("coming soon".to_string());
+    fn achievement_settings_modal(&mut self, ui: &mut egui::Ui) {
+        ui.set_width(300.0);
+        ui.heading("Achievement Settings");
+        ui.separator();
+        egui::ComboBox::from_label("Format")
+            .selected_text(format!("{}", self.saved_state.achievement_export_settings.format))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut self.saved_state.achievement_export_settings.format,
+                    AchievementExportFormat::Uiaf,
+                    "UIAF v1.1 (Standard)",
+                );
+                ui.selectable_value(
+                    &mut self.saved_state.achievement_export_settings.format,
+                    AchievementExportFormat::Seelie,
+                    "Seelie.me",
+                );
+            });
+        ui.checkbox(
+            &mut self.saved_state.achievement_export_settings.completed_only,
+            "Completed only",
+        )
+        .on_hover_text(
+            "Only export completed achievements (status finished or reward claimed).\nUncheck to include all captured achievements.",
+        );
+        ui.separator();
+        egui::Sides::new().show(
+            ui,
+            |_ui| {},
+            |ui| {
+                if ui.button("Ok").clicked() {
+                    ui.close()
+                }
+            },
+        );
+    }
+
+    fn achievement_ui(&mut self, ui: &mut egui::Ui, app_state: &AppState) {
+        self.achievement_handle_export(ui).toast_error(self);
+
+        ui.vertical(|ui| {
+            egui::Sides::new().show(
+                ui,
+                |ui| {
+                    Self::section_header(ui, "Achievements");
+                },
+                |ui| {
+                    if ui
+                        .button(egui_material_icons::icons::ICON_SETTINGS)
+                        .clicked()
+                    {
+                        self.achievement_settings_open = true;
+                    }
+
+                    ui.add_enabled_ui(
+                        app_state.updated.achievements_updated.is_some()
+                            && self.achievement_export_rx.is_none(),
+                        |ui| {
+                            if ui
+                                .button(egui_material_icons::icons::ICON_DOWNLOAD)
+                                .clicked()
+                            {
+                                let now = Local::now();
+                                let default_file_name = match self
+                                    .saved_state
+                                    .achievement_export_settings
+                                    .format
+                                {
+                                    AchievementExportFormat::Uiaf => {
+                                        format!("uiaf_{}.json", now.format("%Y-%m-%d_%H-%M"))
+                                    }
+                                    AchievementExportFormat::Seelie => {
+                                        format!("seelie_{}.json", now.format("%Y-%m-%d_%H-%M"))
+                                    }
+                                };
+                                let mut achievement_save_dialog = FileDialog::new()
+                                    .add_file_filter_extensions("JSON files", vec!["json"])
+                                    .default_file_name(&default_file_name);
+                                achievement_save_dialog.save_file();
+                                self.achievement_save_dialog = Some(achievement_save_dialog);
+                            }
+
+                            if let Some(achievement_save_dialog) = &mut self.achievement_save_dialog
+                                && let Some(path) = achievement_save_dialog.take_picked()
+                            {
+                                self.achievement_save_path = Some(path);
+                                self.achievement_request_export(AchievementExportTarget::File);
+                            }
+
+                            if ui
+                                .button(egui_material_icons::icons::ICON_CONTENT_PASTE_GO)
+                                .clicked()
+                            {
+                                self.achievement_request_export(
+                                    AchievementExportTarget::Clipboard,
+                                );
+                            }
+                        },
+                    );
+                },
+            );
+        });
+    }
+
+    fn achievement_request_export(&mut self, target: AchievementExportTarget) {
+        let (tx, rx) = oneshot::channel();
+        let _ = self.ui_message_tx.send(Message::ExportAchievements(
+            self.saved_state.achievement_export_settings.clone(),
+            tx,
+        ));
+        self.achievement_export_target = target;
+        self.achievement_export_rx = Some(rx);
+    }
+
+    fn achievement_handle_export(&mut self, ui: &mut egui::Ui) -> Result<()> {
+        let Some(rx) = self.achievement_export_rx.take() else {
+            return Ok(());
+        };
+
+        let json = rx.blocking_recv()??;
+
+        match self.achievement_export_target {
+            AchievementExportTarget::None => {
+                tracing::warn!("Unexpected achievement json export");
+            }
+            AchievementExportTarget::Clipboard => {
+                self.achievement_save_to_clipboard(ui, json)?;
+            }
+            AchievementExportTarget::File => {
+                self.achievement_save_to_file(json)?;
+            }
+        }
+
+        self.achievement_export_target = AchievementExportTarget::None;
+        Ok(())
+    }
+
+    fn achievement_save_to_clipboard(&mut self, ui: &mut egui::Ui, json: String) -> Result<()> {
+        ui.ctx().copy_text(json);
+        self.toasts
+            .info("Achievement data copied to clipboard");
+        Ok(())
+    }
+
+    fn achievement_save_to_file(&mut self, json: String) -> Result<()> {
+        let path = self
+            .achievement_save_path
+            .take()
+            .ok_or_else(|| anyhow!("No save file path set"))?;
+
+        let file = File::create(&path).with_context(|| format!("Unable to open file {path:?}"))?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(json.as_bytes())?;
+
+        self.toasts.info("Achievement data saved to file");
+        Ok(())
     }
 
     fn section_header(ui: &mut egui::Ui, name: &str) {

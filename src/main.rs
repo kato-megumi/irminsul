@@ -12,8 +12,10 @@ use tracing_appender::rolling::Rotation;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, reload};
 
+use crate::achievement::AchievementExportSettings;
 use crate::player_data::ExportSettings;
 
+mod achievement;
 mod admin;
 mod app;
 mod capture;
@@ -22,7 +24,6 @@ mod monitor;
 mod player_data;
 mod update;
 mod wish;
-
 const APP_ID: &str = "Irminsul";
 
 #[derive(Clone, Copy, Debug)]
@@ -56,6 +57,7 @@ pub enum Message {
     StartCapture,
     StopCapture,
     ExportGenshinOptimizer(ExportSettings, oneshot::Sender<Result<String>>),
+    ExportAchievements(AchievementExportSettings, oneshot::Sender<Result<String>>),
 }
 
 #[derive(Clone, Debug)]

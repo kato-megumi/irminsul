@@ -31,16 +31,15 @@ In it's current state Irminsul supports:
   - Weapons
   - Materials
   - Characters
+- Achievement export (UIAF v1.1 and Seelie.me formats)
 - Simple, clean UI
 - Export settings to filter which data gets exported
 - Exports data either to the clipboard or saved to a file
 
 Planned features include:
 
-- Achievement export
 - Wish history export
 - Real time data updates while game is running
-
 ## Thanks
 
 Irmunsil is built upon the work of many others.

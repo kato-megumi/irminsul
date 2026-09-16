@@ -7,8 +7,9 @@ pub use auto_artifactarium::r#gen::protos::{AvatarInfo, Item};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+pub use crate::achievement::{AchievementExportFormat, AchievementExportSettings};
+use crate::achievement;
 use crate::good::{self, fake_uninitialized_4th_line};
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ExportSettings {
     pub include_characters: bool,
@@ -67,6 +68,10 @@ impl PlayerData {
 
     pub fn process_items(&mut self, items: &[Item]) {
         self.items = items.into();
+    }
+
+    pub fn export_achievements(&self, settings: &AchievementExportSettings) -> Result<String> {
+        achievement::export_achievements(&self.achievements, settings)
     }
 
     pub fn export_genshin_optimizer(&self, settings: &ExportSettings) -> Result<String> {
