@@ -155,9 +155,7 @@ pub fn export_seelie(
 
         achievements_map.insert(
             achievement.id.to_string(),
-            SeelieItem {
-                done: is_completed,
-            },
+            SeelieItem { done: is_completed },
         );
     }
 

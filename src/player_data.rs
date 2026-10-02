@@ -7,8 +7,8 @@ pub use auto_artifactarium::r#gen::protos::{AvatarInfo, Item};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-pub use crate::achievement::{AchievementExportFormat, AchievementExportSettings};
 use crate::achievement;
+pub use crate::achievement::{AchievementExportFormat, AchievementExportSettings};
 use crate::good::{self, fake_uninitialized_4th_line};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ExportSettings {

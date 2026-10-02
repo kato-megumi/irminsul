@@ -979,7 +979,10 @@ impl IrminsulApp {
         ui.heading("Achievement Settings");
         ui.separator();
         egui::ComboBox::from_label("Format")
-            .selected_text(format!("{}", self.saved_state.achievement_export_settings.format))
+            .selected_text(format!(
+                "{}",
+                self.saved_state.achievement_export_settings.format
+            ))
             .show_ui(ui, |ui| {
                 ui.selectable_value(
                     &mut self.saved_state.achievement_export_settings.format,
@@ -1037,18 +1040,15 @@ impl IrminsulApp {
                                 .clicked()
                             {
                                 let now = Local::now();
-                                let default_file_name = match self
-                                    .saved_state
-                                    .achievement_export_settings
-                                    .format
-                                {
-                                    AchievementExportFormat::Uiaf => {
-                                        format!("uiaf_{}.json", now.format("%Y-%m-%d_%H-%M"))
-                                    }
-                                    AchievementExportFormat::Seelie => {
-                                        format!("seelie_{}.json", now.format("%Y-%m-%d_%H-%M"))
-                                    }
-                                };
+                                let default_file_name =
+                                    match self.saved_state.achievement_export_settings.format {
+                                        AchievementExportFormat::Uiaf => {
+                                            format!("uiaf_{}.json", now.format("%Y-%m-%d_%H-%M"))
+                                        }
+                                        AchievementExportFormat::Seelie => {
+                                            format!("seelie_{}.json", now.format("%Y-%m-%d_%H-%M"))
+                                        }
+                                    };
                                 let mut achievement_save_dialog = FileDialog::new()
                                     .add_file_filter_extensions("JSON files", vec!["json"])
                                     .default_file_name(&default_file_name);
@@ -1067,9 +1067,7 @@ impl IrminsulApp {
                                 .button(egui_material_icons::icons::ICON_CONTENT_PASTE_GO)
                                 .clicked()
                             {
-                                self.achievement_request_export(
-                                    AchievementExportTarget::Clipboard,
-                                );
+                                self.achievement_request_export(AchievementExportTarget::Clipboard);
                             }
                         },
                     );
@@ -1113,8 +1111,7 @@ impl IrminsulApp {
 
     fn achievement_save_to_clipboard(&mut self, ui: &mut egui::Ui, json: String) -> Result<()> {
         ui.ctx().copy_text(json);
-        self.toasts
-            .info("Achievement data copied to clipboard");
+        self.toasts.info("Achievement data copied to clipboard");
         Ok(())
     }
 
